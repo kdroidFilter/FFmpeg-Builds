@@ -292,10 +292,78 @@ jobs:
           name: ffmpeg-${{ steps.strs.outputs.artifact_slug }}
           overwrite: true
           path: artifacts/*
+
+  build_macos:
+    name: Build macOS (native)
+    if: ${{ ( github.event.inputs.buildOnly == 'true' && !cancelled() ) || success() }}
+    needs: build_targets
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Brew environment (arm64)
+        if: ${{ matrix.arch == 'arm64' }}
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew update || true
+          brew install pkg-config nasm yasm cmake meson ninja \
+            libvmaf libass libvorbis opus libvpx aom dav1d x264 x265 \
+            libsoxr zimg libwebp openjpeg rubberband srt librist libbluray \
+            fdk-aac || true
+      - name: Ensure Rosetta (for x64)
+        if: ${{ matrix.arch == 'x64' }}
+        run: |
+          /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
+      - name: Install Intel Homebrew (for x64)
+        if: ${{ matrix.arch == 'x64' }}
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
+          NONINTERACTIVE: 1
+        run: |
+          if [[ ! -x /usr/local/bin/brew ]]; then
+            echo "Installing Homebrew (Intel) under Rosetta..."
+            arch -x86_64 /bin/bash -lc 'curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | /bin/bash'
+          fi
+          echo "/usr/local/bin" >> $GITHUB_PATH
+      - name: Brew environment (x64)
+        if: ${{ matrix.arch == 'x64' }}
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          arch -x86_64 /usr/local/bin/brew update || true
+          arch -x86_64 /usr/local/bin/brew install pkg-config nasm yasm cmake meson ninja \
+            libvmaf libass libvorbis opus libvpx aom dav1d x264 x265 \
+            libsoxr zimg libwebp openjpeg rubberband srt librist libbluray \
+            fdk-aac || true
+      - name: Build FFmpeg (macOS)
+        env:
+          ARCH: ${{ matrix.arch }}
+          BREW_X86_PREFIX: /usr/local
+          # Set to 1 to enable libfdk_aac (nonfree license)
+          NONFREE: 0
+          DEPLOYMENT_TARGET: 12.0
+        run: |
+          bash macos/build.sh
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-darwin-${{ matrix.arch }}
+          overwrite: true
+          path: artifacts/ffmpeg-darwin-${{ matrix.arch }}.zip
   publish_release:
     name: Publish release
-    if: ${{ !cancelled() && ( github.event_name == 'schedule' || github.event.inputs.doRelease == 'true' ) && needs.build_ffmpeg.result == 'success' }}
-    needs: build_ffmpeg
+    if: ${{ !cancelled() && ( github.event_name == 'schedule' || github.event.inputs.doRelease == 'true' ) && needs.build_ffmpeg.result == 'success' && needs.build_macos.result == 'success' }}
+    needs: [build_ffmpeg, build_macos]
     runs-on: ubuntu-latest
     steps:
       - name: Free Disk-Space
