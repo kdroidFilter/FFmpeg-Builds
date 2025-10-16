@@ -6,3 +6,23 @@
 /ffbuild/
 /artifacts/
 /.cache/
+ 
+# macOS local build outputs
+macos/src/
+macos/out/
+macos/out-*/
+macos/out-universal/
+
+# Common build products
+*.o
+*.a
+*.lo
+*.la
+*.dSYM/
+*.obj
+*.lib
+*.dll
+*.exe
+*.so
+*.dylib
+*.pc
